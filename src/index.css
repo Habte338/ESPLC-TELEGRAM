@@ -1,0 +1,42 @@
+@import "tailwindcss";
+
+@theme {
+  --color-esplc-blue: #4a8ac7;
+  --color-esplc-blue-dark: #3a72a8;
+  --color-esplc-blue-light: #6ba6db;
+  --color-esplc-gold: #fdc672;
+  --color-esplc-gold-dark: #e5b05a;
+  --color-esplc-gold-light: #fed899;
+  --color-esplc-white: #ffffff;
+}
+
+:root {
+  --esplc-blue: #4a8ac7;
+  --esplc-white: #ffffff;
+  --esplc-gold: #fdc672;
+}
+
+/* Hide scrollbar for category chips and tabs */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Telegram smooth scrolling */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  background-color: #0b1522;
+  color: #ffffff;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+}
+
+

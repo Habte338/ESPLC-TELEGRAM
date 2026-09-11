@@ -1,0 +1,6 @@
+{
+  "name": "Ethiopian Steel Telegram Mini App",
+  "description": "Ethiopian Steel PLC (አንበሳ ቆርቆሮ) official Telegram Mini App for roofing products, orders, live tracking, and Gemini AI assistant in Amharic and English.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

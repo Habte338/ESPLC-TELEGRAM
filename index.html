@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Ethiopian Steel Telegram Mini App</title>
+    <meta name="description" content="Ethiopian Steel PLC (አንበሳ ቆርቆሮ) official Telegram Mini App for roofing products, orders, live tracking, and Gemini AI assistant in Amharic and English." />
+    <meta property="og:title" content="Ethiopian Steel Telegram Mini App" />
+    <meta property="og:description" content="Ethiopian Steel PLC (አንበሳ ቆርቆሮ) official Telegram Mini App for roofing products, orders, live tracking, and Gemini AI assistant in Amharic and English." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <script>
+      // Global error shield to prevent third-party cross-origin SDK failures from bubbling up
+      window.onerror = function(message, source, lineno, colno, error) {
+        if (
+          message === 'Script error.' ||
+          (typeof message === 'string' && (message.includes('Script error') || message.includes('telegram-web-app')))
+        ) {
+          console.warn('Silenced external cross-origin script event:', message);
+          return true;
+        }
+        return false;
+      };
+      window.addEventListener('error', function(event) {
+        if (
+          event.message === 'Script error.' ||
+          (typeof event.message === 'string' && (event.message.includes('Script error') || event.message.includes('telegram-web-app')))
+        ) {
+          event.preventDefault && event.preventDefault();
+          event.stopImmediatePropagation && event.stopImmediatePropagation();
+          return true;
+        }
+      }, true);
+    </script>
+    <!-- Telegram Mini App Official WebApp SDK (served locally to prevent cross-origin errors) -->
+    <script src="/telegram-web-app.js"></script>
+    <script>
+      // Resilient fallback for Telegram WebApp environment when running in standalone browser
+      if (!window.Telegram) {
+        window.Telegram = {};
+      }
+      if (!window.Telegram.WebApp) {
+        window.Telegram.WebApp = {
+          initData: '',
+          initDataUnsafe: {},
+          version: '7.0',
+          platform: 'unknown',
+          colorScheme: 'dark',
+          themeParams: {},
+          isExpanded: true,
+          viewportHeight: window.innerHeight,
+          viewportStableHeight: window.innerHeight,
+          headerColor: '#17212b',
+          backgroundColor: '#0e1621',
+          isClosingConfirmationEnabled: false,
+          BackButton: {
+            isVisible: false,
+            onClick: function() {},
+            offClick: function() {},
+            show: function() {},
+            hide: function() {}
+          },
+          MainButton: {
+            text: 'CONTINUE',
+            color: '#2481cc',
+            textColor: '#ffffff',
+            isVisible: false,
+            isActive: true,
+            isProgressVisible: false,
+            setText: function(t) { this.text = t; },
+            onClick: function() {},
+            offClick: function() {},
+            show: function() { this.isVisible = true; },
+            hide: function() { this.isVisible = false; },
+            enable: function() { this.isActive = true; },
+            disable: function() { this.isActive = false; },
+            showProgress: function() {},
+            hideProgress: function() {},
+            setParams: function() {}
+          },
+          HapticFeedback: {
+            impactOccurred: function() {},
+            notificationOccurred: function() {},
+            selectionChanged: function() {}
+          },
+          ready: function() {},
+          expand: function() {},
+          close: function() {},
+          sendData: function(data) {
+            console.log('[Telegram.WebApp.sendData]', data);
+          },
+          openLink: function(url) { window.open(url, '_blank'); },
+          openTelegramLink: function(url) { window.open(url, '_blank'); },
+          showAlert: function(msg, cb) { alert(msg); if (cb) cb(); },
+          showConfirm: function(msg, cb) { var r = confirm(msg); if (cb) cb(r); }
+        };
+      }
+    </script>
+  </head>
+  <body class="overflow-x-hidden antialiased select-none">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+
