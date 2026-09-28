@@ -11,6 +11,7 @@ import {
   Sparkles,
   CheckCircle2,
   Lock,
+  UserCheck,
 } from 'lucide-react';
 import { useEthiopianSteel } from '../context/EthiopianSteelContext';
 
@@ -29,6 +30,10 @@ export const CustomerAuthModal: React.FC = () => {
     hapticFeedback,
     telegramUser,
     isTelegramNative,
+    isAdmin,
+    isStaffMode,
+    setIsStaffMode,
+    setActiveTab,
   } = useEthiopianSteel();
 
   // Tab mode for authentication: 'telegram' (1-tap/phone) | 'google' | 'email'
@@ -208,6 +213,45 @@ export const CustomerAuthModal: React.FC = () => {
                 </span>
               </div>
             </div>
+
+            {/* Admin / Staff Controls (Only visible to verified Admins) */}
+            {isAdmin && (
+              <div className="p-3 rounded-2xl bg-[#fdc672]/10 border border-[#fdc672]/40 flex flex-col gap-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 text-xs font-black text-[#fdc672]">
+                    <UserCheck className="w-4 h-4" />
+                    <span>{lang === 'am' ? 'የአስተዳዳሪ ሁኔታ (Admin Privileges)' : 'Admin Privileges Active'}</span>
+                  </div>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#fdc672] text-[#0f1d2e] font-black uppercase">
+                    Admin
+                  </span>
+                </div>
+                <p className="text-[11px] text-white/70">
+                  {lang === 'am'
+                    ? 'ትዕዛዞችን ለመከታተል፣ ዋጋ በብር ለመስጠት እና የመጋዘን ክምችት ለማስተካከል የሰራተኛ ዳሽቦርድን ይክፈቱ።'
+                    : 'Access the factory dashboard to manage orders, quote prices in ETB, and update warehouse stock.'}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    hapticFeedback('medium');
+                    setIsStaffMode(!isStaffMode);
+                    if (!isStaffMode) {
+                      setActiveTab('staff');
+                    }
+                    setIsAuthModalOpen(false);
+                  }}
+                  className="w-full py-2 px-3 rounded-xl bg-[#fdc672] text-[#0f1d2e] font-black text-xs flex items-center justify-center gap-1.5 shadow-md active:scale-95 transition-all"
+                >
+                  <UserCheck className="w-3.5 h-3.5" />
+                  <span>
+                    {isStaffMode
+                      ? lang === 'am' ? 'የሰራተኛ ዳሽቦርድ ዝጋ' : 'Deactivate Staff Mode'
+                      : lang === 'am' ? 'የሰራተኛ ዳሽቦርድ ክፈት' : 'Open Staff Orders & Quotes'}
+                  </span>
+                </button>
+              </div>
+            )}
 
             <button
               onClick={() => {

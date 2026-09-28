@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Download,
   Phone,
@@ -16,6 +16,16 @@ import {
   AlertCircle,
   ExternalLink,
   MessageSquare,
+  Truck,
+  PackageCheck,
+  Server,
+  Globe,
+  ChevronDown,
+  ChevronUp,
+  Zap,
+  Radio,
+  Copy,
+  Check,
 } from 'lucide-react';
 import { useEthiopianSteel } from '../context/EthiopianSteelContext';
 
@@ -35,14 +45,78 @@ export const StaffAdminTab: React.FC = () => {
   } = useEthiopianSteel();
 
   const [activeAdminSubtab, setActiveAdminSubtab] = useState<'orders' | 'stock'>('orders');
-  const [filter, setFilter] = useState<'all' | 'unquoted' | 'quoted' | 'pending' | 'processing' | 'completed'>('all');
+  const [filter, setFilter] = useState<'all' | 'unquoted' | 'quoted' | 'pending' | 'processing' | 'shipped' | 'delivered' | 'completed'>('all');
   const [search, setSearch] = useState('');
 
-  // Local quote inputs per order ID
-  const [quoteInputs, setQuoteInputs] = useState<Record<string, { price: string; notes: string; isOpen: boolean }>>({});
+  // Local quote inputs per order ID (supports both unit price and total price)
+  const [quoteInputs, setQuoteInputs] = useState<Record<string, { price: string; unitPrice: string; notes: string; isOpen: boolean }>>({});
 
   // Local stock edit state per stock item ID
   const [stockEditState, setStockEditState] = useState<Record<string, { meters: string; inStock: boolean; noteAm: string; noteEn: string }>>({});
+
+  // 24/7 Hosting & Webhook status
+  const [is247Open, setIs247Open] = useState(false);
+  const [copiedEnv, setCopiedEnv] = useState(false);
+  const [webhookInputUrl, setWebhookInputUrl] = useState('');
+  const [tgBotStatus, setTgBotStatus] = useState<any>(null);
+  const [isUpdatingWebhook, setIsUpdatingWebhook] = useState(false);
+
+  const fetchTelegramStatus = async () => {
+    try {
+      const res = await fetch('/api/telegram/status');
+      const data = await res.json();
+      setTgBotStatus(data);
+      if (data?.webhookInfo?.result?.url) {
+        setWebhookInputUrl(data.webhookInfo.result.url);
+      }
+    } catch {}
+  };
+
+  useEffect(() => {
+    fetchTelegramStatus();
+  }, []);
+
+  const handleSetWebhook = async () => {
+    if (!webhookInputUrl.trim().startsWith('https://')) {
+      showToast(lang === 'am' ? 'እባክዎ ትክክለኛ HTTPS URL ያስገቡ' : 'Please provide a valid HTTPS URL');
+      return;
+    }
+    setIsUpdatingWebhook(true);
+    try {
+      const res = await fetch('/api/telegram/register-webhook', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: webhookInputUrl.trim() }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast(lang === 'am' ? '✅ ዌብሁክ ተመዝግቧል! ቦቱ 24/7 ይሰራል' : '✅ Webhook registered! Bot is live 24/7');
+        fetchTelegramStatus();
+      } else {
+        showToast(`Error: ${data.error || 'Failed'}`);
+      }
+    } catch {
+      showToast('Network error setting webhook');
+    } finally {
+      setIsUpdatingWebhook(false);
+    }
+  };
+
+  const handleClearWebhook = async () => {
+    setIsUpdatingWebhook(true);
+    try {
+      const res = await fetch('/api/telegram/clear-webhook', { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        showToast(lang === 'am' ? 'ሎንግ ፖሊንግ በርቷል' : 'Long-polling restored');
+        fetchTelegramStatus();
+      }
+    } catch {
+      showToast('Failed to clear webhook');
+    } finally {
+      setIsUpdatingWebhook(false);
+    }
+  };
 
   const filtered = submittedOrders.filter(o => {
     const matchesSearch =
@@ -76,12 +150,22 @@ export const StaffAdminTab: React.FC = () => {
     showToast(lang === 'am' ? 'ዳታው ታድሷል' : 'Orders & stock refreshed');
   };
 
-  const toggleQuoteBox = (orderId: string, currentPrice?: number, currentNotes?: string) => {
+  const toggleQuoteBox = (orderId: string, currentPrice?: number, currentNotes?: string, currentUnitPrice?: number) => {
     hapticFeedback('light');
+    const order = submittedOrders.find(o => o.order_id === orderId);
+    const qty = order ? parseFloat(order.quantity) || 1 : 1;
+    const initialPrice = currentPrice ? String(currentPrice) : '';
+    const initialUnit = currentUnitPrice
+      ? String(currentUnitPrice)
+      : currentPrice
+      ? String(Math.round(currentPrice / qty))
+      : '';
+
     setQuoteInputs(prev => ({
       ...prev,
       [orderId]: {
-        price: prev[orderId]?.price || (currentPrice ? String(currentPrice) : ''),
+        price: prev[orderId]?.price || initialPrice,
+        unitPrice: prev[orderId]?.unitPrice || initialUnit,
         notes: prev[orderId]?.notes || currentNotes || '',
         isOpen: !prev[orderId]?.isOpen,
       },
@@ -90,13 +174,28 @@ export const StaffAdminTab: React.FC = () => {
 
   const handleSaveQuote = async (orderId: string) => {
     const data = quoteInputs[orderId];
-    if (!data || !data.price || isNaN(Number(data.price)) || Number(data.price) < 0) {
+    const order = submittedOrders.find(o => o.order_id === orderId);
+    const qty = order ? parseFloat(order.quantity) || 1 : 1;
+
+    let priceNum = data?.price ? Number(data.price) : 0;
+    let unitPriceNum = data?.unitPrice ? Number(data.unitPrice) : 0;
+
+    // If unit price entered but total not entered
+    if ((!priceNum || priceNum <= 0) && unitPriceNum > 0) {
+      priceNum = Math.round(unitPriceNum * qty);
+    }
+    // If total price entered but unit price not entered
+    if ((!unitPriceNum || unitPriceNum <= 0) && priceNum > 0) {
+      unitPriceNum = Math.round((priceNum / qty) * 100) / 100;
+    }
+
+    if (!priceNum || isNaN(priceNum) || priceNum <= 0) {
       hapticFeedback('error');
       showToast(lang === 'am' ? 'እባክዎ ትክክለኛ ዋጋ በብር ያስገቡ' : 'Please enter a valid price in ETB');
       return;
     }
-    const priceNum = Number(data.price);
-    await quoteOrderPrice(orderId, priceNum, data.notes);
+
+    await quoteOrderPrice(orderId, priceNum, data?.notes, unitPriceNum);
     setQuoteInputs(prev => ({
       ...prev,
       [orderId]: { ...prev[orderId], isOpen: false },
@@ -230,6 +329,194 @@ export const StaffAdminTab: React.FC = () => {
         </button>
       </div>
 
+      {/* Telegram Bot Commands Live Reference */}
+      <div className="p-3 rounded-2xl bg-[#0f1d2e] border border-white/10 flex flex-col gap-2 text-xs">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1.5 font-bold text-white">
+            <span className="text-[#fdc672]">🤖 Telegram Bot Commands</span>
+            <span className="text-[10px] text-white/50 font-mono">@esplc_bot</span>
+          </div>
+          <a
+            href="https://t.me/esplc_bot"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[10px] text-[#fdc672] hover:underline flex items-center gap-1"
+          >
+            <span>Open in Telegram</span>
+            <ExternalLink className="w-3 h-3" />
+          </a>
+        </div>
+        <div className="grid grid-cols-2 gap-1.5 text-[11px] font-mono">
+          <div className="p-1.5 rounded-lg bg-white/5 border border-white/5">
+            <span className="text-[#fdc672] font-bold">/start</span>
+            <span className="text-white/60 block text-[10px] font-sans">Main Menu & Buttons</span>
+          </div>
+          <div className="p-1.5 rounded-lg bg-white/5 border border-white/5">
+            <span className="text-[#fdc672] font-bold">/products</span>
+            <span className="text-white/60 block text-[10px] font-sans">Profiles & Gauges</span>
+          </div>
+          <div className="p-1.5 rounded-lg bg-white/5 border border-white/5">
+            <span className="text-[#fdc672] font-bold">/status [id]</span>
+            <span className="text-white/60 block text-[10px] font-sans">Order tracking</span>
+          </div>
+          <div className="p-1.5 rounded-lg bg-white/5 border border-white/5">
+            <span className="text-[#fdc672] font-bold">/calc 10 12</span>
+            <span className="text-white/60 block text-[10px] font-sans">Roof sheet estimator</span>
+          </div>
+          <div className="p-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20">
+            <span className="text-amber-300 font-bold">/orders</span>
+            <span className="text-white/60 block text-[10px] font-sans">Admin recent orders</span>
+          </div>
+          <div className="p-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20">
+            <span className="text-amber-300 font-bold">/quote [id] [etb]</span>
+            <span className="text-white/60 block text-[10px] font-sans">Direct Telegram quote</span>
+          </div>
+        </div>
+      </div>
+
+      {/* 24/7 Hosting & Bot Webhook Controller */}
+      <div className="p-3 rounded-2xl bg-[#0b1624] border border-[#4a8ac7]/30 flex flex-col gap-2.5 text-xs">
+        <div
+          onClick={() => setIs247Open(!is247Open)}
+          className="flex items-center justify-between cursor-pointer select-none"
+        >
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 rounded-lg bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400">
+              <Zap className="w-3.5 h-3.5" />
+            </div>
+            <div>
+              <div className="font-bold text-white flex items-center gap-1.5">
+                <span>{lang === 'am' ? '24/7 ቋሚ ማስተናገጃ እና ዌብሁክ' : '24/7 Hosting & Webhook'}</span>
+                {tgBotStatus?.webhookInfo?.result?.url ? (
+                  <span className="px-1.5 py-0.5 rounded text-[9px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-mono">
+                    Webhook 24/7 Live
+                  </span>
+                ) : (
+                  <span className="px-1.5 py-0.5 rounded text-[9px] bg-blue-500/20 text-blue-300 border border-blue-500/30 font-mono">
+                    Studio Polling Active
+                  </span>
+                )}
+              </div>
+              <p className="text-[10px] text-white/50">
+                {lang === 'am'
+                  ? 'ያለ ጉግል ስቱዲዮ ቦቱን 24/7 እንዴት ክፍት ማድረግ እንደሚቻል'
+                  : 'How to keep Bot & Mini App active 24/7 without Google Studio'}
+              </p>
+            </div>
+          </div>
+          <button className="text-white/60 hover:text-white p-1">
+            {is247Open ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          </button>
+        </div>
+
+        {is247Open && (
+          <div className="mt-1 pt-2.5 border-t border-white/10 flex flex-col gap-3">
+            {/* Direct Answer Alert */}
+            <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[11px] leading-relaxed text-amber-200/90 flex flex-col gap-1.5">
+              <span className="font-bold text-amber-300 flex items-center gap-1">
+                <AlertCircle className="w-3.5 h-3.5" />
+                {lang === 'am' ? 'ጥያቄ: በ Google Studio ሁልጊዜ ክፍት መሆን ያስፈልጋል?' : 'Do I need to be live on Google Studio 24/7?'}
+              </span>
+              <p>
+                {lang === 'am'
+                  ? '❌ አይ! በ Google Studio ውስጥ የዴቭ ሰርቨሩ የሚሰራው የስቱዲዮው ገጽ ክፍት እስካለ ድረስ ብቻ ነው። ለ 24/7 ቋሚ አገልግሎት ይህንን አፕሊኬሽን ወደ ቋሚ ክላውድ (እንደ Render, Railway, ወይም Google Cloud Run) ማስቀመጥ ይቻላል።'
+                  : '❌ No! Google Studio is a development environment that sleeps when closed. For true 24/7 uptime without keeping Studio open, deploy the code to a persistent host (e.g. Render, Railway, Fly.io, or Cloud Run).'}
+              </p>
+            </div>
+
+            {/* Current Bot Connection Status */}
+            <div className="p-2.5 rounded-xl bg-white/5 border border-white/5 flex flex-col gap-1.5 font-mono text-[10px]">
+              <div className="flex items-center justify-between text-white/80">
+                <span>Bot:</span>
+                <span className="text-[#fdc672]">@{tgBotStatus?.botInfo?.result?.username || 'esplc_bot'}</span>
+              </div>
+              <div className="flex items-center justify-between text-white/80">
+                <span>Target Chat ID:</span>
+                <span className="text-white">{tgBotStatus?.targetChatId || '6184751487'}</span>
+              </div>
+              <div className="flex items-center justify-between text-white/80">
+                <span>Active Mode:</span>
+                <span className={tgBotStatus?.webhookInfo?.result?.url ? 'text-emerald-400 font-bold' : 'text-blue-300 font-bold'}>
+                  {tgBotStatus?.webhookInfo?.result?.url ? 'Webhook (24/7 Event-Driven)' : 'Long Polling (Dev Session)'}
+                </span>
+              </div>
+              {tgBotStatus?.webhookInfo?.result?.url && (
+                <div className="text-[9px] text-white/50 truncate">
+                  URL: {tgBotStatus.webhookInfo.result.url}
+                </div>
+              )}
+            </div>
+
+            {/* Set Webhook Section */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[10px] font-bold text-white/80">
+                {lang === 'am' ? 'የቋሚ ሰርቨር ዌብሁክ ዩአርኤል (Production URL):' : 'Production Webhook HTTPS URL:'}
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={webhookInputUrl}
+                  onChange={e => setWebhookInputUrl(e.target.value)}
+                  placeholder="https://your-production-app.onrender.com"
+                  className="flex-1 bg-black/40 border border-white/20 rounded-xl px-2.5 py-1.5 text-[11px] text-white placeholder-white/30 focus:outline-none focus:border-[#fdc672]"
+                />
+                <button
+                  onClick={handleSetWebhook}
+                  disabled={isUpdatingWebhook}
+                  className="px-3 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 text-[11px] font-bold flex items-center gap-1 active:scale-95 transition-all whitespace-nowrap disabled:opacity-50"
+                >
+                  <Globe className="w-3 h-3" />
+                  <span>{lang === 'am' ? 'ዌብሁክ አስቀምጥ' : 'Set Webhook'}</span>
+                </button>
+              </div>
+              {tgBotStatus?.webhookInfo?.result?.url && (
+                <button
+                  onClick={handleClearWebhook}
+                  disabled={isUpdatingWebhook}
+                  className="self-start text-[10px] text-red-400 hover:underline pt-0.5"
+                >
+                  {lang === 'am' ? 'ወደ ስቱዲዮ ሎንግ ፖሊንግ መልስ (Clear Webhook)' : 'Switch back to Studio polling'}
+                </button>
+              )}
+            </div>
+
+            {/* 3 Step Deployment Summary */}
+            <div className="p-2.5 rounded-xl bg-white/5 border border-white/5 flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-white text-[11px]">
+                  {lang === 'am' ? '🚀 በ 3 እርምጃዎች 24/7 ማስተናገድ:' : '🚀 3 Steps for 24/7 Free Cloud Hosting:'}
+                </span>
+                <button
+                  onClick={() => {
+                    hapticFeedback('light');
+                    navigator.clipboard.writeText(
+                      `TELEGRAM_BOT_TOKEN=7348905759:AAFHswUaBBjyX8PNJrvk3f_j8D3WFczWmWw\nTELEGRAM_TARGET_CHAT_ID=6184751487\nPORT=3000`
+                    );
+                    setCopiedEnv(true);
+                    setTimeout(() => setCopiedEnv(false), 2000);
+                  }}
+                  className="px-2 py-0.5 rounded-lg bg-white/10 hover:bg-white/20 text-[10px] text-[#fdc672] flex items-center gap-1"
+                >
+                  {copiedEnv ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                  <span>{copiedEnv ? 'Copied Env' : 'Copy Env Vars'}</span>
+                </button>
+              </div>
+              <ol className="list-decimal list-inside space-y-1 text-[10px] text-white/70 leading-normal">
+                <li>
+                  <strong className="text-white">Push to GitHub:</strong> Export or commit this repository to your GitHub account.
+                </li>
+                <li>
+                  <strong className="text-white">Deploy on Render / Railway:</strong> Create a new Web Service from your repo, set Build Command to <code className="text-[#fdc672]">npm run build</code> and Start Command to <code className="text-[#fdc672]">npm start</code>.
+                </li>
+                <li>
+                  <strong className="text-white">Add Environment Variables:</strong> Add <code className="text-emerald-400">TELEGRAM_BOT_TOKEN</code> & <code className="text-emerald-400">TELEGRAM_TARGET_CHAT_ID</code>.
+                </li>
+              </ol>
+            </div>
+          </div>
+        )}
+      </div>
+
 
       {/* VIEW 1: ORDERS & QUOTATIONS */}
       {activeAdminSubtab === 'orders' && (
@@ -255,6 +542,8 @@ export const StaffAdminTab: React.FC = () => {
                 { id: 'quoted', labelAm: 'ዋጋ የተሰጣቸው', labelEn: 'Quoted' },
                 { id: 'pending', labelAm: 'በመጠባበቅ ላይ', labelEn: 'Pending' },
                 { id: 'processing', labelAm: 'በሂደት ላይ', labelEn: 'Processing' },
+                { id: 'shipped', labelAm: '🚚 ተልኳል', labelEn: 'Shipped' },
+                { id: 'delivered', labelAm: '📦 ደርሷል', labelEn: 'Delivered' },
                 { id: 'completed', labelAm: 'የተጠናቀቁ', labelEn: 'Completed' },
               ] as const
             ).map(f => (
@@ -308,14 +597,22 @@ export const StaffAdminTab: React.FC = () => {
 
                       <span
                         className={`text-[10px] font-bold px-2 py-0.5 rounded capitalize ${
-                          order.status === 'completed'
-                            ? 'bg-emerald-500/20 text-emerald-300'
+                          order.status === 'delivered'
+                            ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                            : order.status === 'shipped'
+                            ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
+                            : order.status === 'completed'
+                            ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
                             : order.status === 'processing'
-                            ? 'bg-[#4a8ac7]/20 text-[#fdc672]'
-                            : 'bg-white/10 text-white/70'
+                            ? 'bg-[#4a8ac7]/20 text-[#fdc672] border border-[#4a8ac7]/30'
+                            : 'bg-white/10 text-white/70 border border-white/10'
                         }`}
                       >
-                        {order.status}
+                        {order.status === 'shipped'
+                          ? '🚚 Shipped'
+                          : order.status === 'delivered'
+                          ? '📦 Delivered'
+                          : order.status}
                       </span>
                     </div>
                   </div>
@@ -369,6 +666,11 @@ export const StaffAdminTab: React.FC = () => {
                         <div className="text-sm font-black text-white font-mono mt-0.5">
                           {order.quotedPriceETB?.toLocaleString()} ETB
                         </div>
+                        {order.unitPriceETB && (
+                          <div className="text-[11px] text-[#fdc672] font-mono mt-0.5">
+                            {order.quantity}m × {order.unitPriceETB?.toLocaleString()} ETB/m
+                          </div>
+                        )}
                         {order.quoteNotes && (
                           <div className="text-[10px] text-white/70 mt-0.5 italic">"{order.quoteNotes}"</div>
                         )}
@@ -379,7 +681,7 @@ export const StaffAdminTab: React.FC = () => {
 
                       <button
                         type="button"
-                        onClick={() => toggleQuoteBox(order.order_id, order.quotedPriceETB, order.quoteNotes)}
+                        onClick={() => toggleQuoteBox(order.order_id, order.quotedPriceETB, order.quoteNotes, order.unitPriceETB)}
                         className="px-2.5 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-[11px] font-bold text-white transition-all"
                       >
                         {lang === 'am' ? 'ዋጋ ቀይር' : 'Adjust Quote'}
@@ -389,11 +691,11 @@ export const StaffAdminTab: React.FC = () => {
 
                   {/* Quote Input Box (Open or unquoted) */}
                   {(isBoxOpen || (!hasQuote && order.status !== 'completed')) && (
-                    <div className="p-3 rounded-xl bg-[#0b1624] border border-[#4a8ac7]/40 flex flex-col gap-2">
+                    <div className="p-3 rounded-xl bg-[#0b1624] border border-[#4a8ac7]/40 flex flex-col gap-2.5">
                       <div className="flex items-center justify-between">
                         <span className="text-xs font-bold text-[#fdc672] flex items-center gap-1">
                           <DollarSign className="w-3.5 h-3.5" />
-                          <span>{lang === 'am' ? 'ዋጋ በብር ስሌት አስገባ (Quote in ETB):' : 'Enter Quotation Price (ETB):'}</span>
+                          <span>{lang === 'am' ? 'የዋጋ ስሌት (Quotation Calculator):' : 'Quotation & Unit Price (ETB):'}</span>
                         </span>
                         {isBoxOpen && hasQuote && (
                           <button
@@ -406,41 +708,84 @@ export const StaffAdminTab: React.FC = () => {
                         )}
                       </div>
 
-                      <div className="grid grid-cols-3 gap-2">
-                        <div className="col-span-2 relative">
-                          <input
-                            type="number"
-                            min="0"
-                            step="100"
-                            value={quoteBox?.price ?? (order.quotedPriceETB ? String(order.quotedPriceETB) : '')}
-                            onChange={e =>
-                              setQuoteInputs(prev => ({
-                                ...prev,
-                                [order.order_id]: {
-                                  price: e.target.value,
-                                  notes: prev[order.order_id]?.notes ?? order.quoteNotes ?? '',
-                                  isOpen: true,
-                                },
-                              }))
-                            }
-                            placeholder="e.g. 125000"
-                            className="w-full bg-[#0f1d2e] border border-white/15 rounded-xl px-3 py-2 text-xs font-bold text-white placeholder-white/30 focus:outline-none focus:border-[#fdc672]"
-                          />
-                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-mono text-[#fdc672] font-bold">
-                            ETB
-                          </span>
-                        </div>
-
-                        <button
-                          type="button"
-                          onClick={() => handleSaveQuote(order.order_id)}
-                          className="rounded-xl bg-[#4a8ac7] hover:bg-[#3a72a8] active:scale-95 text-white text-xs font-bold flex items-center justify-center gap-1 transition-all shadow-md border border-white/20"
-                        >
-                          <Send className="w-3.5 h-3.5 text-[#fdc672]" />
-                          <span>{lang === 'am' ? 'ላክ' : 'Send'}</span>
-                        </button>
+                      {/* Quantity Context Banner */}
+                      <div className="text-[11px] px-2.5 py-1 rounded-lg bg-[#4a8ac7]/10 border border-[#4a8ac7]/30 text-white/80 flex items-center justify-between">
+                        <span>{lang === 'am' ? 'የትዕዛዝ መጠን (Qty):' : 'Order Qty:'} <strong className="text-white font-mono">{order.quantity} m</strong></span>
+                        <span className="text-[#fdc672] font-mono text-[10px]">{order.gauge} • {order.product}</span>
                       </div>
 
+                      {/* Dual Input: Unit Price & Total Price */}
+                      <div className="grid grid-cols-2 gap-2">
+                        {/* Unit Price Input */}
+                        <div>
+                          <label className="text-[10px] text-white/60 font-semibold block mb-1">
+                            {lang === 'am' ? 'የአንዱ ሜትር ዋጋ (Unit Price):' : 'Unit Price (ETB/m):'}
+                          </label>
+                          <div className="relative">
+                            <input
+                              type="number"
+                              min="0"
+                              step="10"
+                              value={quoteBox?.unitPrice ?? (order.unitPriceETB ? String(order.unitPriceETB) : '')}
+                              onChange={e => {
+                                const unitVal = e.target.value;
+                                const qty = parseFloat(order.quantity) || 1;
+                                const totalCalc = unitVal && !isNaN(Number(unitVal)) ? String(Math.round(Number(unitVal) * qty)) : '';
+                                setQuoteInputs(prev => ({
+                                  ...prev,
+                                  [order.order_id]: {
+                                    unitPrice: unitVal,
+                                    price: totalCalc || prev[order.order_id]?.price || '',
+                                    notes: prev[order.order_id]?.notes ?? order.quoteNotes ?? '',
+                                    isOpen: true,
+                                  },
+                                }));
+                              }}
+                              placeholder="e.g. 1050"
+                              className="w-full bg-[#0f1d2e] border border-white/15 rounded-xl px-2.5 py-1.5 text-xs font-bold text-white placeholder-white/30 focus:outline-none focus:border-[#fdc672]"
+                            />
+                            <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-mono text-[#fdc672] font-bold">
+                              /m
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Total Quoted Price Input */}
+                        <div>
+                          <label className="text-[10px] text-white/60 font-semibold block mb-1">
+                            {lang === 'am' ? 'ጠቅላላ ዋጋ (Total Price):' : 'Total Price (ETB):'}
+                          </label>
+                          <div className="relative">
+                            <input
+                              type="number"
+                              min="0"
+                              step="100"
+                              value={quoteBox?.price ?? (order.quotedPriceETB ? String(order.quotedPriceETB) : '')}
+                              onChange={e => {
+                                const totalVal = e.target.value;
+                                const qty = parseFloat(order.quantity) || 1;
+                                const unitCalc = totalVal && !isNaN(Number(totalVal)) ? String(Math.round((Number(totalVal) / qty) * 100) / 100) : '';
+                                setQuoteInputs(prev => ({
+                                  ...prev,
+                                  [order.order_id]: {
+                                    price: totalVal,
+                                    unitPrice: unitCalc || prev[order.order_id]?.unitPrice || '',
+                                    notes: prev[order.order_id]?.notes ?? order.quoteNotes ?? '',
+                                    isOpen: true,
+                                  },
+                                }));
+                              }}
+                              placeholder="e.g. 105000"
+                              className="w-full bg-[#0f1d2e] border border-white/15 rounded-xl px-2.5 py-1.5 text-xs font-bold text-white placeholder-white/30 focus:outline-none focus:border-[#fdc672]"
+                            />
+                            <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-mono text-[#fdc672] font-bold">
+                              ETB
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Optional Notes Input */}
                       <input
                         type="text"
                         value={quoteBox?.notes ?? (order.quoteNotes || '')}
@@ -449,6 +794,7 @@ export const StaffAdminTab: React.FC = () => {
                             ...prev,
                             [order.order_id]: {
                               price: prev[order.order_id]?.price ?? (order.quotedPriceETB ? String(order.quotedPriceETB) : ''),
+                              unitPrice: prev[order.order_id]?.unitPrice ?? (order.unitPriceETB ? String(order.unitPriceETB) : ''),
                               notes: e.target.value,
                               isOpen: true,
                             },
@@ -457,6 +803,16 @@ export const StaffAdminTab: React.FC = () => {
                         placeholder={lang === 'am' ? 'ማስታወሻ (ምሳሌ፡ 5% ቅናሽ እና መጓጓዣ ያካትታል)...' : 'Notes (e.g. Includes 5% discount & Kaliti delivery)...'}
                         className="w-full bg-[#0f1d2e] border border-white/10 rounded-xl px-3 py-1.5 text-[11px] text-white placeholder-white/30 focus:outline-none focus:border-[#fdc672]"
                       />
+
+                      {/* Send Button */}
+                      <button
+                        type="button"
+                        onClick={() => handleSaveQuote(order.order_id)}
+                        className="w-full py-2 rounded-xl bg-[#4a8ac7] hover:bg-[#3a72a8] active:scale-98 text-white text-xs font-bold flex items-center justify-center gap-1.5 transition-all shadow-md border border-white/20"
+                      >
+                        <Send className="w-3.5 h-3.5 text-[#fdc672]" />
+                        <span>{lang === 'am' ? 'ዋጋውን ወደ ቴሌግራም ላክ' : 'Send Quotation to Telegram'}</span>
+                      </button>
                     </div>
                   )}
 
@@ -482,23 +838,70 @@ export const StaffAdminTab: React.FC = () => {
                       <span>{order.phone}</span>
                     </a>
 
-                    <div className="flex-1 flex justify-end gap-1.5">
+                    <div className="flex-1 flex flex-wrap justify-end gap-1.5">
                       {order.status === 'pending' && (
-                        <button
-                          onClick={() => updateOrderStatus(order.order_id, 'processing')}
-                          className="px-2.5 py-1.5 rounded-lg bg-[#4a8ac7]/20 text-[#fdc672] border border-[#4a8ac7]/30 text-[11px] font-bold active:scale-95"
-                        >
-                          Process
-                        </button>
+                        <>
+                          <button
+                            onClick={() => updateOrderStatus(order.order_id, 'processing')}
+                            title="Set to In Production"
+                            className="px-2.5 py-1.5 rounded-lg bg-[#4a8ac7]/20 hover:bg-[#4a8ac7]/30 text-[#fdc672] border border-[#4a8ac7]/30 text-[11px] font-bold active:scale-95 transition-all"
+                          >
+                            {lang === 'am' ? 'ማምረት ጀምር' : 'Process'}
+                          </button>
+                          <button
+                            onClick={() => updateOrderStatus(order.order_id, 'shipped')}
+                            title="Send Telegram notification: Shipped"
+                            className="px-2.5 py-1.5 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 text-[11px] font-bold active:scale-95 flex items-center gap-1 transition-all"
+                          >
+                            <Truck className="w-3 h-3" />
+                            <span>{lang === 'am' ? 'ላክ (Shipped)' : 'Ship'}</span>
+                          </button>
+                          <button
+                            onClick={() => updateOrderStatus(order.order_id, 'delivered')}
+                            title="Send Telegram notification: Delivered"
+                            className="px-2.5 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-[11px] font-bold active:scale-95 flex items-center gap-1 transition-all"
+                          >
+                            <PackageCheck className="w-3 h-3" />
+                            <span>{lang === 'am' ? 'ደርሷል (Delivered)' : 'Deliver'}</span>
+                          </button>
+                        </>
                       )}
 
                       {order.status === 'processing' && (
+                        <>
+                          <button
+                            onClick={() => updateOrderStatus(order.order_id, 'shipped')}
+                            title="Send Telegram notification: Shipped"
+                            className="px-2.5 py-1.5 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 text-[11px] font-bold active:scale-95 flex items-center gap-1 transition-all"
+                          >
+                            <Truck className="w-3 h-3" />
+                            <span>{lang === 'am' ? 'ላክ (Ship)' : 'Ship'}</span>
+                          </button>
+                          <button
+                            onClick={() => updateOrderStatus(order.order_id, 'completed')}
+                            className="px-2.5 py-1.5 rounded-lg bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/30 text-[11px] font-bold active:scale-95 transition-all"
+                          >
+                            {lang === 'am' ? 'ተጠናቋል' : 'Complete'}
+                          </button>
+                        </>
+                      )}
+
+                      {order.status === 'shipped' && (
                         <button
-                          onClick={() => updateOrderStatus(order.order_id, 'completed')}
-                          className="px-2.5 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[11px] font-bold active:scale-95"
+                          onClick={() => updateOrderStatus(order.order_id, 'delivered')}
+                          title="Send Telegram notification: Delivered"
+                          className="px-2.5 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-[11px] font-bold active:scale-95 flex items-center gap-1 transition-all"
                         >
-                          Complete
+                          <PackageCheck className="w-3 h-3" />
+                          <span>{lang === 'am' ? 'ደርሷል (Mark Delivered)' : 'Mark Delivered'}</span>
                         </button>
+                      )}
+
+                      {order.status === 'delivered' && (
+                        <span className="text-[10px] text-emerald-400 font-bold px-2 py-1 rounded bg-emerald-500/10 border border-emerald-500/20 flex items-center gap-1">
+                          <CheckCircle2 className="w-3 h-3" />
+                          <span>{lang === 'am' ? 'ተረክቧል ✈️ ቴሌግራም ደርሷል' : 'Delivered & Customer Notified'}</span>
+                        </span>
                       )}
                     </div>
                   </div>

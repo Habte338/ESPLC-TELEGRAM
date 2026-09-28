@@ -82,6 +82,7 @@ interface EthiopianSteelContextType {
   searchOrderQuery: string;
   setSearchOrderQuery: (id: string) => void;
   trackOrderById: (id: string) => OrderSubmission | null;
+  reorderPastOrder: (order: OrderSubmission) => void;
   submitOrder: () => Promise<OrderSubmission | null>;
   resetOrderForm: () => void;
   refreshOrders: () => Promise<void>;
@@ -90,8 +91,9 @@ interface EthiopianSteelContextType {
   // Staff Mode & Admin Quotation
   isStaffMode: boolean;
   setIsStaffMode: (val: boolean) => void;
-  updateOrderStatus: (orderId: string, status: 'pending' | 'processing' | 'completed') => void;
-  quoteOrderPrice: (orderId: string, priceETB: number, quoteNotes?: string) => Promise<boolean>;
+  isAdmin: boolean;
+  updateOrderStatus: (orderId: string, status: OrderSubmission['status']) => Promise<boolean>;
+  quoteOrderPrice: (orderId: string, priceETB: number, quoteNotes?: string, unitPriceETB?: number) => Promise<boolean>;
   // Telegram Environment
   isTelegramNative: boolean;
   simulatorFrame: boolean;
@@ -339,6 +341,23 @@ export const EthiopianSteelProvider: React.FC<{ children: React.ReactNode }> = (
   const [activeOrderToTrack, setActiveOrderToTrack] = useState<OrderSubmission | null>(null);
   const [searchOrderQuery, setSearchOrderQuery] = useState('');
   const [isStaffMode, setIsStaffMode] = useState(false);
+
+  // Admin access control: verified if telegram user id matches target admin (6184751487), customer marked isAdmin, or staff auth email
+  const isAdmin = useMemo(() => {
+    const adminChatId = '6184751487';
+    const tgId = String(telegramUser?.id || customer?.telegramId || '');
+    const tgUser = (telegramUser?.username || customer?.telegramUsername || '').replace('@', '').toLowerCase();
+    const email = (customer?.email || '').toLowerCase();
+
+    return (
+      tgId === adminChatId ||
+      tgUser === 'admin' ||
+      email.includes('admin') ||
+      email.includes('factory') ||
+      email.includes('etguy57@gmail.com') ||
+      Boolean(customer?.isAdmin)
+    );
+  }, [telegramUser, customer]);
 
   // AI Chat state
   const [aiMessages, setAiMessages] = useState<Array<{ role: 'user' | 'model'; text: string }>>([
@@ -734,6 +753,70 @@ export const EthiopianSteelProvider: React.FC<{ children: React.ReactNode }> = (
     [submittedOrders]
   );
 
+  const reorderPastOrder = useCallback(
+    (pastOrder: OrderSubmission) => {
+      hapticFeedback('success');
+      // Set product
+      if (pastOrder.product_id) {
+        setSelectedProductId(pastOrder.product_id as RoofingProduct['id']);
+      }
+      if (pastOrder.ega_material) {
+        setSelectedEgaVariant(pastOrder.ega_material);
+      }
+      // Set gauge
+      if (pastOrder.gauge_id) {
+        setSelectedGaugeId(pastOrder.gauge_id as GaugeOption['id']);
+      }
+      // Set color
+      if (pastOrder.color_id) {
+        setSelectedColorId(pastOrder.color_id as ColorOption['id']);
+      }
+      // Set quantity
+      if (pastOrder.quantity) {
+        setQuantityMeters(pastOrder.quantity);
+      }
+      // Set address & phone if present
+      if (pastOrder.address) {
+        setDeliveryAddress(pastOrder.address);
+      }
+      if (pastOrder.phone) {
+        setCustomerPhone(pastOrder.phone);
+      }
+      if (pastOrder.first_name) {
+        setCustomerName(pastOrder.first_name);
+      }
+      if (pastOrder.username) {
+        setCustomerTelegramId(pastOrder.username);
+      }
+      // Set reorder note
+      setOrderNotes(`Reorder of previous order #${pastOrder.order_id}`);
+
+      // Switch to order builder tab
+      setActiveTab('order');
+      showToast(
+        lang === 'am'
+          ? `የትዕዛዝ #${pastOrder.order_id} ዝርዝር ወደ ማዘዣው ገጽ ተላልፏል!`
+          : `Items from #${pastOrder.order_id} loaded into Order Builder!`
+      );
+    },
+    [
+      lang,
+      hapticFeedback,
+      showToast,
+      setActiveTab,
+      setSelectedProductId,
+      setSelectedEgaVariant,
+      setSelectedGaugeId,
+      setSelectedColorId,
+      setQuantityMeters,
+      setDeliveryAddress,
+      setCustomerPhone,
+      setCustomerName,
+      setCustomerTelegramId,
+      setOrderNotes,
+    ]
+  );
+
   // Submit Order logic (validates, sends to API, and triggers Telegram.WebApp.sendData if in Telegram)
   const submitOrder = useCallback(async (): Promise<OrderSubmission | null> => {
     hapticFeedback('heavy');
@@ -887,7 +970,7 @@ export const EthiopianSteelProvider: React.FC<{ children: React.ReactNode }> = (
   ]);
 
   const updateOrderStatus = useCallback(
-    async (orderId: string, status: 'pending' | 'processing' | 'completed') => {
+    async (orderId: string, status: OrderSubmission['status']): Promise<boolean> => {
       hapticFeedback('medium');
       setSubmittedOrders(prev => {
         const updated = prev.map(o => (o.order_id === orderId ? { ...o, status } : o));
@@ -901,22 +984,41 @@ export const EthiopianSteelProvider: React.FC<{ children: React.ReactNode }> = (
         setActiveOrderToTrack(prev => (prev ? { ...prev, status } : null));
       }
 
+      let telegramDispatched = false;
       try {
-        await fetch(`/api/orders/${orderId}/status`, {
+        const res = await fetch(`/api/orders/${orderId}/status`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ status }),
         });
-      } catch {}
+        const data = await res.json();
+        telegramDispatched = Boolean(data.telegramDispatched);
+      } catch (err) {
+        console.warn('Failed to update status on server:', err);
+      }
 
-      showToast(lang === 'am' ? `የትዕዛዝ ሁኔታ ተቀይሯል: ${status}` : `Order status updated to: ${status}`);
+      const statusLabels: Record<OrderSubmission['status'], { am: string; en: string }> = {
+        pending: { am: 'በመጠባበቅ ላይ', en: 'Pending' },
+        processing: { am: 'በማምረት ላይ', en: 'In Production' },
+        shipped: { am: 'ተልኳል / በመጓጓዝ ላይ', en: 'Shipped' },
+        delivered: { am: 'ደርሷል', en: 'Delivered' },
+        completed: { am: 'ተጠናቋል', en: 'Completed' },
+      };
+
+      const label = statusLabels[status] ? (lang === 'am' ? statusLabels[status].am : statusLabels[status].en) : status;
+      const tgNotice = telegramDispatched
+        ? (lang === 'am' ? ' (የቴሌግራም መልዕክት ተልኳል ✈️)' : ' (Telegram notification dispatched ✈️)')
+        : '';
+
+      showToast(`${lang === 'am' ? 'የትዕዛዝ ሁኔታ ተቀይሯል፡ ' : 'Order status updated: '}${label}${tgNotice}`);
+      return true;
     },
     [activeOrderToTrack, lang, hapticFeedback, showToast]
   );
 
   // Admin / Bot Owner Quote Price & Notes
   const quoteOrderPrice = useCallback(
-    async (orderId: string, priceETB: number, quoteNotes?: string): Promise<boolean> => {
+    async (orderId: string, priceETB: number, quoteNotes?: string, unitPriceETB?: number): Promise<boolean> => {
       hapticFeedback('success');
       const quotedAt = new Date().toISOString().replace('T', ' ').substring(0, 19);
 
@@ -926,6 +1028,7 @@ export const EthiopianSteelProvider: React.FC<{ children: React.ReactNode }> = (
             ? {
                 ...o,
                 quotedPriceETB: priceETB,
+                unitPriceETB: unitPriceETB !== undefined ? unitPriceETB : o.unitPriceETB,
                 quotedByStaff: true,
                 quotedAt,
                 quoteNotes: quoteNotes || o.quoteNotes,
@@ -944,6 +1047,7 @@ export const EthiopianSteelProvider: React.FC<{ children: React.ReactNode }> = (
             ? {
                 ...prev,
                 quotedPriceETB: priceETB,
+                unitPriceETB: unitPriceETB !== undefined ? unitPriceETB : prev.unitPriceETB,
                 quotedByStaff: true,
                 quotedAt,
                 quoteNotes: quoteNotes || prev.quoteNotes,
@@ -956,7 +1060,7 @@ export const EthiopianSteelProvider: React.FC<{ children: React.ReactNode }> = (
         await fetch(`/api/orders/${orderId}/quote`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ quotedPriceETB: priceETB, quoteNotes }),
+          body: JSON.stringify({ quotedPriceETB: priceETB, unitPriceETB, quoteNotes }),
         });
       } catch {}
 
@@ -987,6 +1091,9 @@ export const EthiopianSteelProvider: React.FC<{ children: React.ReactNode }> = (
           body: JSON.stringify({
             message: text.trim(),
             history: aiMessages.slice(-8),
+            userId: telegramUser?.id || customer?.id || 'web-user',
+            username: telegramUser?.username || customer?.telegramUsername || customer?.email || 'web_user',
+            customerName: customerName || customer?.name || telegramUser?.first_name || 'Customer',
           }),
         });
         const data = await response.json();
@@ -1073,6 +1180,7 @@ export const EthiopianSteelProvider: React.FC<{ children: React.ReactNode }> = (
         searchOrderQuery,
         setSearchOrderQuery,
         trackOrderById,
+        reorderPastOrder,
         submitOrder,
         resetOrderForm,
         refreshOrders,
@@ -1080,6 +1188,7 @@ export const EthiopianSteelProvider: React.FC<{ children: React.ReactNode }> = (
         refreshStock,
         isStaffMode,
         setIsStaffMode,
+        isAdmin,
         updateOrderStatus,
         quoteOrderPrice,
         isTelegramNative,

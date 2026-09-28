@@ -42,6 +42,7 @@ export interface CustomerUser {
   photoUrl?: string;
   authProvider: 'email' | 'google' | 'telegram' | 'phone' | 'guest';
   isLoggedIn: boolean;
+  isAdmin?: boolean;
 }
 
 
@@ -72,13 +73,14 @@ export interface OrderSubmission {
   address: string;
   phone: string;
   timestamp: string;
-  status: 'pending' | 'processing' | 'completed';
+  status: 'pending' | 'processing' | 'shipped' | 'delivered' | 'completed';
   customer_email?: string;
   auth_provider?: string;
   ega_material?: string;
   notes?: string;
   // Bot Owner / Admin Quoted Price & Breakdown
   quotedPriceETB?: number;
+  unitPriceETB?: number;
   quotedByStaff?: boolean;
   quotedAt?: string;
   quoteNotes?: string;

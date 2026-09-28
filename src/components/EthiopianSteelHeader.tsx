@@ -3,7 +3,7 @@ import { Phone, Globe, User, LogIn, UserCheck } from 'lucide-react';
 import { useEthiopianSteel } from '../context/EthiopianSteelContext';
 
 export const EthiopianSteelHeader: React.FC = () => {
-  const { lang, toggleLang, isStaffMode, setIsStaffMode, customer, setIsAuthModalOpen, hapticFeedback } =
+  const { lang, toggleLang, isStaffMode, setIsStaffMode, isAdmin, customer, setIsAuthModalOpen, hapticFeedback } =
     useEthiopianSteel();
 
   return (
@@ -85,21 +85,23 @@ export const EthiopianSteelHeader: React.FC = () => {
           <Phone className="w-4 h-4 text-white" />
         </a>
 
-        {/* Staff Mode Toggle */}
-        <button
-          onClick={() => {
-            hapticFeedback('medium');
-            setIsStaffMode(!isStaffMode);
-          }}
-          className={`p-1.5 rounded-xl text-xs font-medium border transition-all flex items-center gap-1 ${
-            isStaffMode
-              ? 'bg-[#fdc672] text-[#0f1d2e] border-[#fdc672] font-black shadow-sm'
-              : 'bg-white/5 border-white/10 text-white/60 hover:text-white'
-          }`}
-          title="Toggle Staff Orders Dashboard"
-        >
-          <UserCheck className="w-4 h-4" />
-        </button>
+        {/* Staff Mode Toggle (Authorized Admins / Bot Owners Only) */}
+        {isAdmin && (
+          <button
+            onClick={() => {
+              hapticFeedback('medium');
+              setIsStaffMode(!isStaffMode);
+            }}
+            className={`p-1.5 rounded-xl text-xs font-medium border transition-all flex items-center gap-1 ${
+              isStaffMode
+                ? 'bg-[#fdc672] text-[#0f1d2e] border-[#fdc672] font-black shadow-sm'
+                : 'bg-white/5 border-white/10 text-white/60 hover:text-white'
+            }`}
+            title="Toggle Staff Orders Dashboard"
+          >
+            <UserCheck className="w-4 h-4" />
+          </button>
+        )}
 
         {/* Bilingual Language Switcher (Amharic / English) */}
         <button

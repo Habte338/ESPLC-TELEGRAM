@@ -1,6 +1,23 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, Trash2, Loader2 } from 'lucide-react';
+import { Send, Bot, User, Trash2, Loader2, Sparkles } from 'lucide-react';
 import { useEthiopianSteel } from '../context/EthiopianSteelContext';
+
+// Ultra-lightweight inline Gemini Sparkle Star Logo (instant 0ms render, zero network requests)
+const GeminiLogoIcon: React.FC<{ className?: string }> = ({ className = 'w-3.5 h-3.5' }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <linearGradient id="geminiGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stopColor="#4a8ac7" />
+        <stop offset="50%" stopColor="#8ab4f8" />
+        <stop offset="100%" stopColor="#fdc672" />
+      </linearGradient>
+    </defs>
+    <path
+      d="M12 0C12 6.627 6.627 12 0 12C6.627 12 12 17.373 12 24C12 17.373 17.373 12 24 12C17.373 12 12 6.627 12 0Z"
+      fill="url(#geminiGrad)"
+    />
+  </svg>
+);
 
 export const AiChatTab: React.FC = () => {
   const {
@@ -9,11 +26,25 @@ export const AiChatTab: React.FC = () => {
     isAiLoading,
     sendAiMessage,
     clearAiChat,
+    isAdmin,
     hapticFeedback,
   } = useEthiopianSteel();
 
   const [inputVal, setInputVal] = useState('');
+  const [showCommands, setShowCommands] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+
+  const commandButtons = [
+    { cmd: '/start', label: '⚡ /start', descAm: 'ዋና ማውጫ', descEn: 'Main Menu' },
+    { cmd: '/products', label: '📦 /products', descAm: 'የጣራ ምርቶች', descEn: 'Profiles' },
+    { cmd: '/status', label: '🔍 /status', descAm: 'የትዕዛዝ ሁኔታ', descEn: 'Track Order' },
+    { cmd: '/calc 10 12', label: '🧮 /calc', descAm: 'የጣራ ስሌት', descEn: 'Calculator' },
+    { cmd: '/showroom', label: '🏢 /showroom', descAm: 'አድራሻዎች', descEn: 'Showroom' },
+    { cmd: '/help', label: '📞 /help', descAm: 'እርዳታ', descEn: 'Support' },
+    ...(isAdmin
+      ? [{ cmd: '/orders', label: '👑 /orders', descAm: 'ትዕዛዞች', descEn: 'Admin Orders' }]
+      : []),
+  ];
 
   const quickQuestions =
     lang === 'am'
@@ -54,8 +85,9 @@ export const AiChatTab: React.FC = () => {
               <h3 className="text-xs font-bold text-white">
                 {lang === 'am' ? 'የኢትዮጵያን ስቲል AI ረዳት' : 'Ethiopian Steel AI Expert'}
               </h3>
-              <span className="text-[9px] bg-[#fdc672]/20 text-[#fdc672] px-1 rounded font-bold border border-[#fdc672]/30">
-                Gemini
+              <span className="text-[10px] bg-gradient-to-r from-[#4a8ac7]/20 to-[#fdc672]/20 text-[#fdc672] px-2 py-0.5 rounded-full font-bold border border-[#fdc672]/40 flex items-center gap-1 shadow-xs">
+                <GeminiLogoIcon className="w-3 h-3" />
+                <span>Gemini Flash</span>
               </span>
             </div>
             <span className="text-[10px] text-white/60">
@@ -83,8 +115,8 @@ export const AiChatTab: React.FC = () => {
               className={`flex items-start gap-2 ${isModel ? 'justify-start' : 'justify-end'}`}
             >
               {isModel && (
-                <div className="w-6 h-6 rounded-lg bg-[#4a8ac7] text-white flex items-center justify-center text-[10px] flex-shrink-0 mt-0.5 border border-white/20">
-                  🦁
+                <div className="w-7 h-7 rounded-xl bg-gradient-to-br from-[#17304a] to-[#0f1d2e] border border-[#4a8ac7]/40 text-white flex items-center justify-center flex-shrink-0 mt-0.5 shadow-sm">
+                  <GeminiLogoIcon className="w-4 h-4" />
                 </div>
               )}
 
@@ -108,16 +140,52 @@ export const AiChatTab: React.FC = () => {
         })}
 
         {isAiLoading && (
-          <div className="flex items-center gap-2 text-white/50 text-xs">
-            <div className="w-6 h-6 rounded-lg bg-[#4a8ac7] text-white flex items-center justify-center text-[10px]">
-              <Loader2 className="w-3.5 h-3.5 animate-spin text-[#fdc672]" />
+          <div className="flex items-center gap-2.5 text-white/70 text-xs py-1">
+            <div className="w-7 h-7 rounded-xl bg-[#0f1d2e] border border-[#fdc672]/50 flex items-center justify-center shadow-sm">
+              <GeminiLogoIcon className="w-4 h-4 animate-spin" />
             </div>
-            <span className="italic text-white/70">
-              {lang === 'am' ? 'እያሰበ ነው...' : 'Ethiopian Steel AI is thinking...'}
-            </span>
+            <div className="flex items-center gap-1.5">
+              <span className="font-medium text-[#fdc672]">
+                {lang === 'am' ? 'Gemini እያሰበ ነው...' : 'Gemini is replying...'}
+              </span>
+              <span className="flex gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#fdc672] animate-bounce" style={{ animationDelay: '0ms' }} />
+                <span className="w-1.5 h-1.5 rounded-full bg-[#8ab4f8] animate-bounce" style={{ animationDelay: '150ms' }} />
+                <span className="w-1.5 h-1.5 rounded-full bg-[#4a8ac7] animate-bounce" style={{ animationDelay: '300ms' }} />
+              </span>
+            </div>
           </div>
         )}
         <div ref={messagesEndRef} />
+      </div>
+
+      {/* Slash Commands Quick Bar */}
+      <div className="pb-1.5 flex flex-col gap-1.5">
+        <div className="flex items-center justify-between px-0.5">
+          <span className="text-[10px] uppercase tracking-wider text-[#fdc672] font-black flex items-center gap-1">
+            <span>⚡ Bot Commands / ትዕዛዞች</span>
+          </span>
+          <span className="text-[9px] text-white/50">
+            {lang === 'am' ? 'ለመሞከር አንዱን ይጫኑ' : 'Tap to run'}
+          </span>
+        </div>
+
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar">
+          {commandButtons.map((btn, i) => (
+            <button
+              key={i}
+              type="button"
+              onClick={() => {
+                hapticFeedback('medium');
+                handleSend(btn.cmd);
+              }}
+              className="px-2.5 py-1 rounded-lg bg-[#4a8ac7]/20 hover:bg-[#4a8ac7]/40 border border-[#4a8ac7]/40 text-xs font-mono font-bold text-[#fdc672] hover:text-white whitespace-nowrap transition-all shadow-xs active:scale-95 flex items-center gap-1"
+            >
+              <span>{btn.label}</span>
+              <span className="text-[9px] text-white/60 font-sans">({lang === 'am' ? btn.descAm : btn.descEn})</span>
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Suggested Quick Prompt Chips */}
@@ -129,7 +197,7 @@ export const AiChatTab: React.FC = () => {
               hapticFeedback('light');
               handleSend(q);
             }}
-            className="px-2.5 py-1 rounded-full bg-[#0f1d2e] hover:bg-[#17304a] border border-[#4a8ac7]/30 text-[11px] text-white/80 hover:text-[#fdc672] whitespace-nowrap transition-all"
+            className="px-2.5 py-1 rounded-full bg-[#0f1d2e] hover:bg-[#17304a] border border-white/10 text-[11px] text-white/70 hover:text-white whitespace-nowrap transition-all"
           >
             {q}
           </button>

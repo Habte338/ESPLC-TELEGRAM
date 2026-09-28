@@ -92,48 +92,48 @@ async function sendTelegramUpdateToCustomer(
 
   let messageText = '';
   if (type === 'status_update') {
-    const statusLabelAm =
-      order.status === 'completed'
-        ? '✅ ተጠናቋል / ለመላክ ተዘጋጅቷል (Ready for Dispatch / Completed)'
-        : order.status === 'processing'
-        ? '🔄 በማምረት ሂደት ላይ ነው (In Production)'
-        : '⏳ በመጠባበቅ ላይ (Pending Review)';
+    let statusEmoji = '📦';
+    let statusLabel = 'Pending';
+    if (order.status === 'shipped') {
+      statusEmoji = '🚚';
+      statusLabel = 'Shipped / በመጓጓዝ ላይ';
+    } else if (order.status === 'delivered') {
+      statusEmoji = '🎉';
+      statusLabel = 'Delivered / ደርሷል';
+    } else if (order.status === 'completed') {
+      statusEmoji = '✅';
+      statusLabel = 'Ready / ተጠናቋል';
+    } else if (order.status === 'processing') {
+      statusEmoji = '⚙️';
+      statusLabel = 'In Production / በማምረት ላይ';
+    }
 
     messageText = `
-🔔 *የትዕዛዝ ሁኔታ ማሻሻያ (Order Status Update)*
-━━━━━━━━━━━━━━━━━━━━━
-ሰላም *${order.first_name}*! የጣራ ቆርቆሮ ትዕዛዝዎ ሁኔታ ተሻሽሏል፡
+${statusEmoji} *Order Update: ${statusLabel}*
+📋 \`${order.order_id}\`
+📦 ${order.product} (${order.gauge} · ${order.color})
+📏 ${order.quantity} LM
+📍 ${order.address || 'N/A'}
+📱 \`${order.phone}\`
 
-📋 *የትዕዛዝ ቁጥር:* \`${order.order_id}\`
-📦 *ምርት:* ${order.product} (${order.gauge} · ${order.color})
-📏 *መጠን:* ${order.quantity} LM
-
-⚡ *የአሁኑ ሁኔታ:*
-*${statusLabelAm}*
-
-${order.status === 'completed' ? '🎉 ምርትዎ ተመርቶ ተጠናቋል! ከፋብሪካው መረከብ ወይም ወደ አድራሻዎ መላክ ይቻላል።' : '👷 የፋብሪካው ቡድን ምርትዎን እያዘጋጀ ነው።'}
-
-📞 ጥያቄ ካለዎት: \`+251 11 434 2200\`
-🏭 *Ethiopian Steel PLC*
+${order.status === 'shipped' ? '🚚 Your roofing order has shipped and is on the way!' : order.status === 'delivered' ? '✅ Your roofing order has been delivered successfully. Thank you for choosing Ethiopian Steel!' : ''}
+📞 +251 11 434 2200 · Ethiopian Steel
     `.trim();
   } else if (type === 'quote_ready') {
+    const qtyNum = parseFloat(String(order.quantity || '0')) || 0;
+    const totalETB = Number(order.quotedPriceETB) || 0;
+    const unitPrice = order.unitPriceETB || (qtyNum > 0 ? Math.round((totalETB / qtyNum) * 100) / 100 : 0);
+
     messageText = `
-💰 *ኦፊሴላዊ የዋጋ ዝርዝር ተዘጋጅቷል! (Official Factory Quote)*
-━━━━━━━━━━━━━━━━━━━━━
-ሰላም *${order.first_name}*! ለጠየቁት የጣራ ቆርቆሮ ትዕዛዝ የዋጋ ስሌት ተጠናቋል፡
+💰 *Official Factory Price Quote*
+📋 \`${order.order_id}\`
+📦 ${order.product} (${order.gauge} · ${order.color})
+📏 Qty: *${order.quantity} LM*
 
-📋 *የትዕዛዝ ቁጥር:* \`${order.order_id}\`
-📦 *ምርት:* ${order.product} (${order.gauge} · ${order.color})
-📏 *መጠን:* ${order.quantity} LM
-
-💵 *የተሰላው ጠቅላላ ዋጋ:*
-*${order.quotedPriceETB?.toLocaleString()} ETB (ብር)*
-
-${order.quoteNotes ? `💬 *የሽያጭ ማስታወሻ:* _${order.quoteNotes}_\n` : ''}
-📍 *የፋብሪካ አድራሻ:* ቃሊቲ (Kaliti), አዲስ አበባ
-📞 *የሽያጭ ክፍል ስልክ:* \`+251 11 434 2200\`
-━━━━━━━━━━━━━━━━━━━━━
-🏭 *Ethiopian Steel PLC*
+💵 *Unit Price:* ${unitPrice.toLocaleString()} ETB/LM
+🧾 *Total:* *${order.quantity} LM × ${unitPrice.toLocaleString()} ETB = ${totalETB.toLocaleString()} ETB*
+${order.quoteNotes ? `💬 _${order.quoteNotes}_\n` : ''}
+📍 Kaliti Factory · 📞 +251 11 434 2200
     `.trim();
   }
 
@@ -189,11 +189,12 @@ export interface OrderRecord {
   address: string;
   phone: string;
   timestamp: string;
-  status: 'pending' | 'processing' | 'completed';
+  status: 'pending' | 'processing' | 'shipped' | 'delivered' | 'completed';
   customer_email?: string;
   telegram_id?: string;
   notes?: string;
   quotedPriceETB?: number;
+  unitPriceETB?: number;
   quotedByStaff?: boolean;
   quotedAt?: string;
   quoteNotes?: string;
@@ -316,8 +317,16 @@ function getGeminiClient(): GoogleGenAI | null {
   return geminiClient;
 }
 
-// Multi-model candidate list for high availability
-const CANDIDATE_MODELS = ['gemini-3.8-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite'];
+// Multi-model candidate list for ultra-fast generation with high availability
+const CANDIDATE_MODELS = ['gemini-3.1-flash-lite', 'gemini-3.8-flash', 'gemini-flash-latest'];
+
+// Helper to race promise with timeout
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, errorMessage: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error(errorMessage)), timeoutMs)),
+  ]);
+}
 
 // Intelligent Ethiopian Steel Factsheet & Domain Knowledge Engine
 function generateSmartFactsheetReply(message: string, isAmharic: boolean): string {
@@ -486,14 +495,19 @@ async function queryGeminiWithFallback(
 
   for (const model of CANDIDATE_MODELS) {
     try {
-      const res = await ai.models.generateContent({
-        model,
-        contents,
-        config: {
-          systemInstruction,
-          temperature: 0.3,
-        },
-      });
+      // 5-second timeout per candidate model for snappy responsiveness
+      const res = await withTimeout(
+        ai.models.generateContent({
+          model,
+          contents,
+          config: {
+            systemInstruction,
+            temperature: 0.3,
+          },
+        }),
+        5000,
+        `Gemini model ${model} response timed out`
+      );
 
       if (res && res.text && res.text.trim()) {
         return res.text.trim();
@@ -505,25 +519,41 @@ async function queryGeminiWithFallback(
         err?.code === 503 ||
         err?.status === 429 ||
         err?.code === 429 ||
-        (typeof err?.message === 'string' && (err.message.includes('high demand') || err.message.includes('UNAVAILABLE')));
+        (typeof err?.message === 'string' && (err.message.includes('high demand') || err.message.includes('UNAVAILABLE') || err.message.includes('timed out')));
 
-      console.warn(`Gemini model ${model} temporarily unavailable or failed (${isUnavailable ? 'high demand' : err?.message}). Trying next candidate...`);
+      console.warn(`Gemini model ${model} temporarily unavailable or timed out (${isUnavailable ? 'high demand / timeout' : err?.message}). Trying next candidate...`);
     }
   }
 
   throw lastError || new Error('All candidate Gemini models temporarily unavailable');
 }
 
-// 1. Gemini AI Chat API
+// 1. Gemini AI Chat API (and slash command runner)
 app.post('/api/chat', async (req, res) => {
   try {
-    const { message, history = [] } = req.body;
+    const { message, history = [], userId, username, customerName } = req.body;
     if (!message || typeof message !== 'string') {
       res.status(400).json({ error: 'Message is required' });
       return;
     }
 
     const isAmharic = /[\u1200-\u137F]/.test(message);
+    const trimmed = message.trim();
+
+    // Direct command execution (/start, /products, /status, /calc, /showroom, /help, /orders, /quote)
+    if (trimmed.startsWith('/')) {
+      const cmdResult = processTelegramCommand(
+        trimmed,
+        {
+          id: userId || 'web-user',
+          username: username || 'web_user',
+          first_name: customerName || 'Customer',
+        },
+        isAmharic
+      );
+      res.json({ reply: cmdResult.text, source: 'command' });
+      return;
+    }
     const ai = getGeminiClient();
 
     if (ai) {
@@ -611,6 +641,654 @@ app.post('/api/orders', async (req, res) => {
   });
 });
 
+// Unified Telegram Bot Command Engine (Handles /start, /products, /status, /calc, /showroom, /help, /orders, /quote)
+interface CommandResult {
+  text: string;
+  replyMarkup?: any;
+}
+
+function processTelegramCommand(
+  rawText: string,
+  fromUser: { id?: string | number; username?: string; first_name?: string } = {},
+  isAmharicHint?: boolean
+): CommandResult {
+  const text = rawText.trim();
+  const tokens = text.split(/\s+/);
+  const command = tokens[0].toLowerCase().split('@')[0]; // Remove @botname if in group
+  const isAmharic = isAmharicHint !== undefined ? isAmharicHint : /[\u1200-\u137F]/.test(text);
+
+  const userIdStr = String(fromUser.id || '');
+  const usernameStr = (fromUser.username || '').replace(/^@+/, '').toLowerCase();
+  const isAdmin =
+    userIdStr === TELEGRAM_TARGET_CHAT_ID ||
+    userIdStr === '6184751487' ||
+    usernameStr === 'esplc_f' ||
+    usernameStr.includes('admin');
+
+  // Base Inline Keyboard for quick 1-tap navigation in Telegram
+  const standardKeyboard = {
+    inline_keyboard: [
+      [
+        { text: '📦 የጣራ ምርቶች (Products)', callback_data: 'cmd_products' },
+        { text: '🔍 ትዕዛዝ ሁኔታ (Status)', callback_data: 'cmd_status' },
+      ],
+      [
+        { text: '🏢 አድራሻና ሾውሩም (Showroom)', callback_data: 'cmd_showroom' },
+        { text: '🧮 የጣራ ስሌት (Roof Calc)', callback_data: 'cmd_calc' },
+      ],
+      [
+        { text: '📞 እርዳታ እና ስልክ (Help)', callback_data: 'cmd_help' },
+      ],
+      ...(isAdmin
+        ? [[{ text: '📋 የቅርብ ጊዜ ትዕዛዞች (Admin Orders)', callback_data: 'cmd_orders' }]]
+        : []),
+    ],
+  };
+
+  // 1. /start or /menu
+  if (command === '/start' || command === '/menu') {
+    const welcome = `
+🦁 *እንኳን ወደ ኢትዮጵያን ስቲል ፒ.ኤል.ሲ (አንበሳ ቆርቆሮ) በደህና መጡ!* 🇪🇹
+_የ28 ዓመታት የታመነ የጣራ ቆርቆሮ ጥራት እና አስተማማኝነት_
+
+📌 *ዋና ዋና የትዕዛዝ ማዘዣዎች (Commands):*
+• /products - የጣራ ቆርቆሮ አይነቶች (Versatile, EGA, Elegantile, Corrugated)
+• /status <የትዕዛዝ_ቁጥር> - የትዕዛዝዎን ሁኔታ መከታተያ
+• /calc <ርዝመት> <ስፋት> - የጣራ ቆርቆሮ መጠን ስሌት (ምሳሌ፡ \`/calc 10 12\`)
+• /showroom - የፋብሪካ እና የሾውሩም አድራሻዎች
+• /help - የሽያጭ ክፍል ስልክ እና እርዳታ
+
+${isAdmin ? '👑 *የአስተዳዳሪ ትዕዛዞች (Admin Commands):*\n• /orders - የቅርብ ጊዜ ትዕዛዞችን ማየት\n• /quote <order_id> <price> [notes] - ዋጋ መስጠት\n• /status_update <order_id> <status> - ሁኔታ መቀየር\n' : ''}💬 እንዲሁም ማንኛውንም ጥያቄ (ስለ ጋጅ፣ ውፍረት፣ ቀለም ወይም ዋጋ) በቀጥታ በዚህ ቦት መጠየቅ ይችላሉ!
+    `.trim();
+
+    return { text: welcome, replyMarkup: standardKeyboard };
+  }
+
+  // 2. /products
+  if (command === '/products') {
+    const products = `
+🏭 *የኢትዮጵያን ስቲል ዋና ዋና የጣራ ምርቶች (Roofing Profiles):*
+━━━━━━━━━━━━━━━━━━━━━
+1️⃣ *ቨርሳታይል (Versatile Tile Profile):*
+• ውብ የሰድር ቅርፅ፣ ለቪላ እና ለዘመናዊ መኖሪያ ቤቶች ተመራጭ።
+• ውፍረት: G28 (0.32mm) እና G30 (0.25mm)
+• ቀለሞች: ቀይ (Brick Red)፣ አረንጓዴ (Emerald)፣ ቻርኮል (Grey)
+
+2️⃣ *ኤሌጋንታይል (Elegantile Classic):*
+• ፕሪሚየም ክላሲክ ሰድር ዲዛይን፣ ለቅንጡ ቤቶችና ሪዞርቶች።
+• ውፍረት: G28 (0.32mm)
+
+3️⃣ *ኢ.ጂ.ኤ (EGA 300, 400, 500, 600):*
+• ዘመናዊ የትራፔዞይዳል ቅርፅ፣ ለኢንዱስትሪ፣ ለመጋዘንና ለዘመናዊ ህንፃዎች።
+• ከፍተኛ ጥንካሬ እና ፈጣን የውሃ ፍሳሽ ማስተላለፍ።
+
+4️⃣ *መደበኛ አንበሳ ቆርቆሮ (Normal Corrugated):*
+• የ28 ዓመታት የታወቀው አንበሳ ብራንድ፣ አስተማማኝና ዘላቂ።
+• ውፍረት: G28, G30, G32 (0.20mm)
+
+🎨 *ቀለሞች:* ቀይ • አረንጓዴ • ቻርኮል • ሲልቨር (Galvanized)
+📞 *ለትዕዛዝ ወይም ለዋጋ:* +251 11 434 2200 / +251 91 122 3344
+    `.trim();
+
+    return {
+      text: products,
+      replyMarkup: {
+        inline_keyboard: [
+          [
+            { text: '🧮 የጣራ ስሌት (Calculate)', callback_data: 'cmd_calc' },
+            { text: '🔍 ትዕዛዝ ሁኔታ (Track)', callback_data: 'cmd_status' },
+          ],
+        ],
+      },
+    };
+  }
+
+  // 3. /status or /status <order_id>
+  if (command === '/status') {
+    const orderIdArg = tokens[1]?.trim();
+
+    if (orderIdArg) {
+      const match = orders.find(
+        o =>
+          o.order_id.toLowerCase() === orderIdArg.toLowerCase() ||
+          o.order_id.toLowerCase().includes(orderIdArg.toLowerCase())
+      );
+
+      if (!match) {
+        return {
+          text: `❌ የትዕዛዝ ቁጥር \`${orderIdArg}\` አልተገኘም። እባክዎ ቁጥሩን ያረጋግጡ ወይም በ +251 11 434 2200 ይደውሉ።`,
+        };
+      }
+
+      const statusAm: Record<string, string> = {
+        pending: 'በመጠባበቅ ላይ (Pending Quote)',
+        processing: 'በማምረት ላይ (In Production)',
+        shipped: 'ተልኳል / በመጓጓዝ ላይ (Shipped)',
+        delivered: 'ደርሷል (Delivered)',
+        completed: 'ተጠናቋል (Completed)',
+      };
+
+      const info = `
+📋 *የትዕዛዝ መረጃ:* \`${match.order_id}\`
+━━━━━━━━━━━━━━━━━━━━━
+• ሁኔታ: *${statusAm[match.status] || match.status}*
+• ደንበኛ: *${match.first_name}*
+• ስልክ: \`${match.phone}\`
+• ምርት: *${match.product} (${match.gauge})*
+• ቀለም: *${match.color}*
+• መጠን: *${match.quantity} Linear Meters*
+• አድራሻ: *${match.address}*
+• ቀን: *${match.timestamp}*
+${match.quotedPriceETB ? `• የተሰጠው ዋጋ: *${match.quotedPriceETB.toLocaleString()} ETB*` : '• ዋጋ: *በፋብሪካው በመሰላት ላይ*'}
+${match.unitPriceETB ? `• የአንዱ ሜትር ዋጋ: *${match.unitPriceETB.toLocaleString()} ETB/m*` : ''}
+${match.quoteNotes ? `• ማስታወሻ: _"${match.quoteNotes}"_` : ''}
+      `.trim();
+
+      return { text: info };
+    }
+
+    // No order ID provided: Look up orders by this Telegram user
+    const userOrders = orders.filter(o => {
+      const tgId = o.user_id || o.telegram_id || '';
+      const uname = (o.username || '').replace(/^@+/, '').toLowerCase();
+      return (
+        (userIdStr && tgId === userIdStr) ||
+        (usernameStr && uname === usernameStr)
+      );
+    });
+
+    if (userOrders.length > 0) {
+      let resp = `📋 *የእርስዎ የቅርብ ጊዜ ትዕዛዞች (${userOrders.length}):*\n━━━━━━━━━━━━━━━━━━━━━\n`;
+      userOrders.slice(-4).reverse().forEach((ord, i) => {
+        resp += `\n${i + 1}️⃣ *ቁጥር:* \`${ord.order_id}\`\n• ምርት: ${ord.product} (${ord.quantity}m)\n• ሁኔታ: *${ord.status}*\n• ዋጋ: ${ord.quotedPriceETB ? ord.quotedPriceETB.toLocaleString() + ' ETB' : 'በስሌት ላይ'}\n`;
+      });
+      resp += `\nዝርዝሩን ለማየት: \`/status <የትዕዛዝ_ቁጥር>\` ብለው ይላኩ።`;
+      return { text: resp };
+    }
+
+    return {
+      text: `
+ℹ️ *የትዕዛዝ መከታተያ (Order Tracking):*
+እባክዎ የትዕዛዝ ቁጥርዎን አያይዘው ይጻፉ።
+ምሳሌ፡ \`/status ORD-20260904-B4A1\`
+
+የትዕዛዝ ቁጥርዎን ካላወቁ ወይም አዲስ ለማዘዝ በ +251 11 434 2200 ይደውሉ።
+      `.trim(),
+    };
+  }
+
+  // 4. /calc or /calc <length> <width>
+  if (command === '/calc' || command === '/calculate') {
+    const len = parseFloat(tokens[1]);
+    const wid = parseFloat(tokens[2]);
+
+    if (!isNaN(len) && !isNaN(wid) && len > 0 && wid > 0) {
+      const groundArea = len * wid;
+      const pitchedArea = Math.round(groundArea * 1.15); // Standard 15% roof pitch slope
+      const sheetCount = Math.ceil(wid / 0.85); // standard effective cover ~850mm
+      const halfSpan = len / 2;
+      const slopeLength = Math.round((halfSpan * 1.15 + 0.3) * 10) / 10;
+      const totalLM = Math.round(sheetCount * 2 * slopeLength);
+      const estWeightKg = Math.round(pitchedArea * 3.8); // avg weight ~3.8kg/m2 for G28
+
+      const calcResult = `
+🧮 *የጣራ ስሌት ውጤት (${len}m × ${wid}m):*
+━━━━━━━━━━━━━━━━━━━━━
+• የመሬት ስፋት: *${groundArea} ካሬ ሜትር (m²)*
+• የጣራው ጠቅላላ ስፋት (Pitch ~15%): *${pitchedArea} m²*
+• የሚፈጀው ጠቅላላ ሜትር: *~${totalLM} Linear Meters (LM)*
+• የሚያስፈልገው የቆርቆሮ ብዛት (Dual Slope): *~${sheetCount * 2} ፍሬ* (እያንዳንዳቸው ~${slopeLength}m)
+• ግምታዊ ክብደት (G28): *~${estWeightKg} kg*
+
+💡 *ማሳሰቢያ:* ይህ ግምታዊ ስሌት ነው። ትክክለኛውን ለማረጋገጥና ለማዘዝ በ +251 11 434 2200 ይደውሉ።
+      `.trim();
+
+      return { text: calcResult };
+    }
+
+    return {
+      text: `
+🧮 *የጣራ ቆርቆሮ ስሌት ማሽን (Roof Estimator):*
+የጣራዎን ርዝመት እና ስፋት በሜትር አስገብተው ይጻፉ።
+
+👉 ምሳሌ፡ \`/calc 10 12\`
+(ርዝመት: 10 ሜትር፣ ስፋት: 12 ሜትር)
+      `.trim(),
+    };
+  }
+
+  // 5. /showroom or /location
+  if (command === '/showroom' || command === '/location') {
+    const showroom = `
+🏢 *የኢትዮጵያን ስቲል ፒ.ኤል.ሲ አድራሻዎች (Locations):*
+━━━━━━━━━━━━━━━━━━━━━
+📍 *ዋና ፋብሪካ (Kaliti Main Factory):*
+ቃሊቲ፣ ከቶታል ማደያ አጠገብ፣ አዲስ አበባ
+📞 ስልክ: +251 11 434 2200 / +251 91 122 3344
+
+📍 *ሱሚት ሾውሩም (Summit Showroom):*
+ሱሚት 72፣ ከኮንዶሚኒየም መግቢያ አጠገብ
+📞 ስልክ: +251 92 233 4455
+
+⏰ *የስራ ሰዓት:* ሰኞ - ቅዳሜ: 8:00 AM - 6:00 PM (ከሰኞ እስከ ቅዳሜ)
+🌐 ድረ-ገጽ: https://ethiopiansteelplc.com
+    `.trim();
+
+    return { text: showroom };
+  }
+
+  // 6. /help
+  if (command === '/help' || command === '/support') {
+    const help = `
+ℹ️ *የኢትዮጵያን ስቲል የእርዳታ ማዕከል (Support):*
+━━━━━━━━━━━━━━━━━━━━━
+📞 *የሽያጭና ትዕዛዝ ክፍል:* +251 11 434 2200
+📱 *ተንቀሳቃሽ ስልክ:* +251 91 122 3344 / +251 92 233 4455
+💬 *ቴሌግራም ረዳት:* @Esplc_f
+🌐 *ድረ-ገጽ:* https://ethiopiansteelplc.com
+
+📍 *ዋና ፋብሪካ:* ቃሊቲ፣ አዲስ አበባ
+⏰ *የስራ ሰዓት:* 8:00 AM - 6:00 PM
+    `.trim();
+
+    return { text: help };
+  }
+
+  // 7. ADMIN COMMAND: /orders
+  if (command === '/orders') {
+    if (!isAdmin) {
+      return { text: '⛔ ይህ ትዕዛዝ ለፋብሪካው አስተዳዳሪዎች ብቻ የተፈቀደ ነው (Admin Access Only).' };
+    }
+
+    const recent = orders.slice(-6).reverse();
+    let resp = `📋 *የቅርብ ጊዜ የደንበኛ ትዕዛዞች (${orders.length} ጠቅላላ):*\n━━━━━━━━━━━━━━━━━━━━━\n`;
+
+    recent.forEach((ord, i) => {
+      const qStatus = ord.quotedPriceETB
+        ? `💰 ${ord.quotedPriceETB.toLocaleString()} ETB`
+        : '⏳ ዋጋ አልተሰጠም (Pending)';
+      resp += `\n${i + 1}️⃣ \`${ord.order_id}\` [${ord.status.toUpperCase()}]\n👤 *${ord.first_name}* (📞 \`${ord.phone}\`)\n📦 ${ord.quantity}m ${ord.product} (${ord.gauge})\n${qStatus}\n`;
+    });
+
+    resp += `\n━━━━━━━━━━━━━━━━━━━━━\n👉 *ዋጋ ለመስጠት:* \`/quote <order_id> <price_etb> [notes]\`\n👉 *ሁኔታ ለመቀየር:* \`/status_update <order_id> <status>\``;
+    return { text: resp };
+  }
+
+  // 8. ADMIN COMMAND: /quote <order_id> <price> [notes]
+  if (command === '/quote') {
+    if (!isAdmin) {
+      return { text: '⛔ ይህ ትዕዛዝ ለፋብሪካው አስተዳዳሪዎች ብቻ የተፈቀደ ነው (Admin Access Only).' };
+    }
+
+    const orderIdArg = tokens[1]?.trim();
+    const priceArg = tokens[2]?.trim();
+    const notesArg = tokens.slice(3).join(' ').trim();
+
+    if (!orderIdArg || !priceArg) {
+      return {
+        text: `
+ℹ️ *የዋጋ መስጫ መመሪያ (Quote Syntax):*
+\`/quote <order_id> <price_in_ETB> [notes]\`
+
+👉 ምሳሌዎች:
+• \`/quote ORD-20260904-B4A1 125000 5% discount applied\`
+• \`/quote ORD-20260904-B4A1 1050/m\`
+        `.trim(),
+      };
+    }
+
+    const order = orders.find(
+      o =>
+        o.order_id.toLowerCase() === orderIdArg.toLowerCase() ||
+        o.order_id.toLowerCase().includes(orderIdArg.toLowerCase())
+    );
+
+    if (!order) {
+      return { text: `❌ ትዕዛዝ \`${orderIdArg}\` አልተገኘም። እባክዎ /orders ብለው ቁጥሩን ያረጋግጡ።` };
+    }
+
+    const qty = parseFloat(order.quantity) || 1;
+    let totalPrice = 0;
+    let unitPrice = 0;
+
+    if (priceArg.toLowerCase().includes('/m') || priceArg.toLowerCase().includes('m')) {
+      unitPrice = parseFloat(priceArg.replace(/[^0-9.]/g, ''));
+      totalPrice = Math.round(unitPrice * qty);
+    } else {
+      totalPrice = parseFloat(priceArg.replace(/[^0-9.]/g, ''));
+      unitPrice = Math.round((totalPrice / qty) * 100) / 100;
+    }
+
+    if (isNaN(totalPrice) || totalPrice <= 0) {
+      return { text: '❌ እባክዎ ትክክለኛ የዋጋ መጠን በብር ያስገቡ። ምሳሌ፡ `/quote ORD-xxx 125000`' };
+    }
+
+    // Update order record
+    order.quotedPriceETB = totalPrice;
+    order.unitPriceETB = unitPrice;
+    order.quotedByStaff = true;
+    order.quotedAt = new Date().toISOString().replace('T', ' ').substring(0, 19);
+    if (notesArg) order.quoteNotes = notesArg;
+    if (order.status === 'pending') order.status = 'processing';
+
+    // Dispatch update to customer Telegram chat if known
+    if (order.user_id && order.user_id !== 'anonymous' && !isNaN(Number(order.user_id))) {
+      sendTelegramMessageWithKeyboard(
+        order.user_id,
+        `
+🎉 *በትዕዛዝዎ ላይ የዋጋ ስሌት ደርሷል!*
+━━━━━━━━━━━━━━━━━━━━━
+📋 *የትዕዛዝ ቁጥር:* \`${order.order_id}\`
+📦 *ምርት:* ${order.product} (${order.gauge}) - ${order.quantity}m
+💰 *ጠቅላላ ዋጋ:* *${totalPrice.toLocaleString()} ETB*
+💵 *የአንዱ ሜትር ዋጋ:* *${unitPrice.toLocaleString()} ETB/m*
+${notesArg ? `📝 *ማስታወሻ:* "${notesArg}"` : ''}
+
+ለክፍያ እና ማረጋገጫ በ +251 11 434 2200 ይደውሉ።
+        `.trim()
+      ).catch(() => {});
+    }
+
+    return {
+      text: `
+✅ *በትዕዛዝ \`${order.order_id}\` ላይ ዋጋ በተሳካ ሁኔታ ተሰጥቷል!*
+━━━━━━━━━━━━━━━━━━━━━
+👤 ደንበኛ: *${order.first_name}* (📞 \`${order.phone}\`)
+📦 መጠን: *${order.quantity}m* (${order.product})
+💰 ጠቅላላ ዋጋ: *${totalPrice.toLocaleString()} ETB*
+💵 የአንዱ ሜትር ዋጋ: *${unitPrice.toLocaleString()} ETB/m*
+${notesArg ? `📝 ማስታወሻ: _"${notesArg}"_` : ''}
+      `.trim(),
+    };
+  }
+
+  // 9. ADMIN COMMAND: /status_update <order_id> <status>
+  if (command === '/status_update') {
+    if (!isAdmin) {
+      return { text: '⛔ ይህ ትዕዛዝ ለፋብሪካው አስተዳዳሪዎች ብቻ የተፈቀደ ነው (Admin Access Only).' };
+    }
+
+    const orderIdArg = tokens[1]?.trim();
+    const newStatus = tokens[2]?.trim().toLowerCase() as OrderRecord['status'];
+    const validStatuses: OrderRecord['status'][] = ['pending', 'processing', 'shipped', 'delivered', 'completed'];
+
+    if (!orderIdArg || !newStatus || !validStatuses.includes(newStatus)) {
+      return {
+        text: `
+ℹ️ *የትዕዛዝ ሁኔታ መቀየሪያ መመሪያ:*
+\`/status_update <order_id> <pending|processing|shipped|delivered|completed>\`
+
+👉 ምሳሌ: \`/status_update ORD-20260904-B4A1 shipped\`
+        `.trim(),
+      };
+    }
+
+    const order = orders.find(
+      o =>
+        o.order_id.toLowerCase() === orderIdArg.toLowerCase() ||
+        o.order_id.toLowerCase().includes(orderIdArg.toLowerCase())
+    );
+
+    if (!order) {
+      return { text: `❌ ትዕዛዝ \`${orderIdArg}\` አልተገኘም።` };
+    }
+
+    order.status = newStatus;
+
+    return {
+      text: `✅ የትዕዛዝ \`${order.order_id}\` ሁኔታ ወደ *${newStatus.toUpperCase()}* ተቀይሯል።`,
+    };
+  }
+
+  // Default fallback if unknown command starting with /
+  if (command.startsWith('/')) {
+    return {
+      text: `
+❓ ያልታወቀ ትዕዛዝ: \`${command}\`
+
+የሚገኙ ትዕዛዞች:
+• /start - ዋና ማውጫ
+• /products - የጣራ ምርቶች
+• /status - የትዕዛዝ ሁኔታ
+• /calc - የጣራ ስሌት
+• /showroom - አድራሻዎች
+• /help - እርዳታ
+      `.trim(),
+      replyMarkup: standardKeyboard,
+    };
+  }
+
+  // General questions answered via factsheet knowledge engine
+  const reply = generateSmartFactsheetReply(text, isAmharic);
+  return { text: reply };
+}
+
+// Helper: Send Telegram Message with optional Markdown & Keyboard
+async function sendTelegramMessageWithKeyboard(
+  chatId: string | number,
+  text: string,
+  replyMarkup?: any
+): Promise<boolean> {
+  if (!TELEGRAM_BOT_TOKEN || !chatId) return false;
+
+  try {
+    const payload: any = {
+      chat_id: chatId,
+      text,
+      parse_mode: 'Markdown',
+    };
+    if (replyMarkup) {
+      payload.reply_markup = replyMarkup;
+    }
+
+    const res = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json() as any;
+    return Boolean(data.ok);
+  } catch (err) {
+    console.error('[Telegram send error]:', err);
+    return false;
+  }
+}
+
+// Handler for all incoming Telegram updates (messages, slash commands, inline buttons)
+async function handleTelegramUpdate(update: any) {
+  if (!update) return;
+
+  // 1. Handle Inline Button Clicks (callback_query)
+  if (update.callback_query) {
+    const cb = update.callback_query;
+    const chatId = cb.message?.chat?.id;
+    const data = cb.data || '';
+    const fromUser = cb.from;
+
+    // Acknowledge the callback query so Telegram dismisses the progress spinner
+    try {
+      await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/answerCallbackQuery`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ callback_query_id: cb.id }),
+      });
+    } catch {}
+
+    if (chatId && data) {
+      const mappedCommand = data.startsWith('cmd_') ? '/' + data.replace('cmd_', '') : data;
+      const cmdResult = processTelegramCommand(mappedCommand, fromUser);
+      await sendTelegramMessageWithKeyboard(chatId, cmdResult.text, cmdResult.replyMarkup);
+    }
+    return;
+  }
+
+  // 2. Handle Text Messages and Commands
+  if (update.message) {
+    const msg = update.message;
+    const chatId = msg.chat?.id;
+    const text = (msg.text || '').trim();
+    const fromUser = msg.from;
+
+    if (!chatId || !text) return;
+
+    const cmdResult = processTelegramCommand(text, fromUser);
+    await sendTelegramMessageWithKeyboard(chatId, cmdResult.text, cmdResult.replyMarkup);
+  }
+}
+
+// Telegram Long Polling Runner: Polls Telegram Bot API continuously so commands work 100% of the time
+let isPollingActive = false;
+let telegramPollingOffset = 0;
+
+async function startTelegramPolling() {
+  if (!TELEGRAM_BOT_TOKEN) {
+    console.warn('[Telegram Polling] Bot token not provided. Polling skipped.');
+    return;
+  }
+
+  // 1. Clear any webhook to enable getUpdates long-polling
+  try {
+    const delRes = await fetch(
+      `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/deleteWebhook?drop_pending_updates=false`
+    );
+    const delData = await delRes.json() as any;
+    console.log('[Telegram Bot] Webhook cleared for active long-polling:', delData.ok ? 'SUCCESS' : delData.description);
+  } catch (err: any) {
+    console.warn('[Telegram Bot] deleteWebhook notice:', err?.message);
+  }
+
+  // 2. Register bot commands with Telegram so the command menu pops up automatically
+  try {
+    await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setMyCommands`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        commands: [
+          { command: 'start', description: 'Main menu & Welcome / ዋና ማውጫ' },
+          { command: 'products', description: 'Roofing profiles & Gauges / ምርቶች' },
+          { command: 'status', description: 'Check order status / የትዕዛዝ ሁኔታ' },
+          { command: 'calc', description: 'Roof sheets calculator / የስሌት ማሽን' },
+          { command: 'showroom', description: 'Factory & Showrooms / አድራሻዎች' },
+          { command: 'orders', description: 'Recent factory orders (Admin) / ትዕዛዞች' },
+          { command: 'quote', description: 'Quote order price in ETB (Admin) / ዋጋ መስጫ' },
+          { command: 'help', description: 'Phone numbers & Support / እርዳታ' },
+        ],
+      }),
+    });
+    console.log('[Telegram Bot] Official command menu registered with Telegram API');
+  } catch (err: any) {
+    console.warn('[Telegram Bot] setMyCommands notice:', err?.message);
+  }
+
+  // 3. Start polling loop
+  if (isPollingActive) return;
+  isPollingActive = true;
+  console.log('[Telegram Bot] Long-polling engine started listening for commands...');
+
+  (async () => {
+    while (isPollingActive) {
+      try {
+        const pollUrl = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getUpdates?offset=${telegramPollingOffset}&timeout=20`;
+        const res = await fetch(pollUrl);
+        const data = await res.json() as any;
+
+        if (data && data.ok && Array.isArray(data.result)) {
+          for (const update of data.result) {
+            telegramPollingOffset = update.update_id + 1;
+            await handleTelegramUpdate(update);
+          }
+        } else {
+          await new Promise(r => setTimeout(r, 2000));
+        }
+      } catch (err: any) {
+        // Network retry pause
+        await new Promise(r => setTimeout(r, 3000));
+      }
+    }
+  })();
+}
+
+// Telegram Webhook Endpoint (also supported alongside polling)
+app.post('/api/telegram/webhook', async (req, res) => {
+  res.sendStatus(200);
+  try {
+    await handleTelegramUpdate(req.body);
+  } catch (err) {
+    console.error('Error handling webhook update:', err);
+  }
+});
+
+// Diagnostic endpoint to check bot status
+app.get('/api/telegram/status', async (req, res) => {
+  let botInfo: any = null;
+  let webhookInfo: any = null;
+  try {
+    const [meRes, hookRes] = await Promise.all([
+      fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getMe`),
+      fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getWebhookInfo`),
+    ]);
+    botInfo = await meRes.json();
+    webhookInfo = await hookRes.json();
+  } catch {}
+
+  res.json({
+    pollingActive: isPollingActive,
+    pollingOffset: telegramPollingOffset,
+    targetChatId: TELEGRAM_TARGET_CHAT_ID,
+    botInfo,
+    webhookInfo,
+  });
+});
+
+// Register Webhook endpoint for 24/7 standalone production deployment
+app.post('/api/telegram/register-webhook', async (req, res) => {
+  try {
+    const { url } = req.body;
+    if (!url || typeof url !== 'string' || !url.startsWith('https://')) {
+      res.status(400).json({ success: false, error: 'Valid HTTPS URL is required' });
+      return;
+    }
+
+    // Stop polling loop if active to avoid conflicting updates
+    isPollingActive = false;
+
+    const hookUrl = `${url.replace(/\/$/, '')}/api/telegram/webhook`;
+    const tgRes = await fetch(
+      `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook?url=${encodeURIComponent(hookUrl)}&drop_pending_updates=false`
+    );
+    const tgData = (await tgRes.json()) as any;
+
+    res.json({
+      success: Boolean(tgData.ok),
+      webhookUrl: hookUrl,
+      result: tgData,
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message || 'Failed to register webhook' });
+  }
+});
+
+// Clear Webhook and restore long polling
+app.post('/api/telegram/clear-webhook', async (req, res) => {
+  try {
+    const tgRes = await fetch(
+      `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/deleteWebhook?drop_pending_updates=false`
+    );
+    const tgData = (await tgRes.json()) as any;
+
+    // Resume polling
+    startTelegramPolling();
+
+    res.json({
+      success: Boolean(tgData.ok),
+      message: 'Webhook cleared. Long-polling restarted.',
+      result: tgData,
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message || 'Failed to clear webhook' });
+  }
+});
+
 // Test endpoint to verify Telegram Bot integration directly
 app.post('/api/telegram/test', async (req, res) => {
   const testMessage = `
@@ -653,16 +1331,34 @@ app.patch('/api/orders/:id/status', async (req, res) => {
     res.status(404).json({ error: 'Order not found' });
     return;
   }
-  if (status && ['pending', 'processing', 'completed'].includes(status)) {
+  const allowedStatuses = ['pending', 'processing', 'shipped', 'delivered', 'completed'];
+  if (status && allowedStatuses.includes(status)) {
+    const previousStatus = order.status;
     order.status = status;
 
     // Send Telegram update to customer (or sales chat)
     const targetChat = order.user_id && order.user_id !== 'anonymous' ? order.user_id : TELEGRAM_TARGET_CHAT_ID;
-    sendTelegramUpdateToCustomer(targetChat, order, 'status_update').catch(err => {
-      console.warn('Failed to send status update on telegram:', err);
-    });
+    let telegramDispatched = false;
+    let telegramError: string | undefined;
 
-    res.json({ success: true, order });
+    try {
+      const tgRes = await sendTelegramUpdateToCustomer(targetChat, order, 'status_update');
+      telegramDispatched = tgRes.success;
+      telegramError = tgRes.error;
+    } catch (err: any) {
+      console.warn('Failed to send status update on telegram:', err);
+      telegramError = err?.message;
+    }
+
+    res.json({
+      success: true,
+      order,
+      previousStatus,
+      newStatus: status,
+      telegramDispatched,
+      telegramTarget: targetChat,
+      telegramError,
+    });
     return;
   }
   res.status(400).json({ error: 'Invalid status' });
@@ -671,7 +1367,7 @@ app.patch('/api/orders/:id/status', async (req, res) => {
 // Admin Quote Pricing endpoint
 app.post('/api/orders/:id/quote', async (req, res) => {
   const { id } = req.params;
-  const { quotedPriceETB, quoteNotes } = req.body;
+  const { quotedPriceETB, unitPriceETB, quoteNotes } = req.body;
   const order = orders.find(o => o.order_id === id);
   if (!order) {
     res.status(404).json({ error: 'Order not found' });
@@ -684,7 +1380,13 @@ app.post('/api/orders/:id/quote', async (req, res) => {
     return;
   }
 
+  const qty = parseFloat(String(order.quantity || '0')) || 0;
+  const unitNum = unitPriceETB !== undefined && !isNaN(Number(unitPriceETB))
+    ? Number(unitPriceETB)
+    : qty > 0 ? Math.round((priceNum / qty) * 100) / 100 : 0;
+
   order.quotedPriceETB = priceNum;
+  order.unitPriceETB = unitNum;
   order.quotedByStaff = true;
   order.quotedAt = new Date().toISOString().replace('T', ' ').substring(0, 19);
   if (quoteNotes !== undefined) {
@@ -762,6 +1464,8 @@ async function startServer() {
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Ethiopian Steel PLC Telegram Mini App server running on port ${PORT}`);
+    // Start active Telegram Bot background long-polling
+    startTelegramPolling();
   });
 }
 

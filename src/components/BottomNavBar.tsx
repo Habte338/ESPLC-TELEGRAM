@@ -4,7 +4,7 @@ import { useEthiopianSteel } from '../context/EthiopianSteelContext';
 import { SteelTabType } from '../types/ethiopianSteel';
 
 export const BottomNavBar: React.FC = () => {
-  const { activeTab, setActiveTab, lang, isStaffMode, hapticFeedback } = useEthiopianSteel();
+  const { activeTab, setActiveTab, lang, isStaffMode, isAdmin, hapticFeedback } = useEthiopianSteel();
 
   const navItems: Array<{ id: SteelTabType; labelAm: string; labelEn: string; icon: React.ReactNode }> = [
     {
@@ -45,7 +45,7 @@ export const BottomNavBar: React.FC = () => {
     },
   ];
 
-  if (isStaffMode) {
+  if (isAdmin && isStaffMode) {
     navItems.push({
       id: 'staff',
       labelAm: 'ሰራተኛ',
